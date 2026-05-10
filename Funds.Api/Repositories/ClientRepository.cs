@@ -20,10 +20,9 @@ public class ClientRepository : IClientRepository
             .FirstOrDefaultAsync(x => x.IdCliente == idCliente, cancellationToken);
     }
 
-    public async Task UpdateAsync(Client client, CancellationToken cancellationToken)
+    public Task UpdateAsync(Client client, CancellationToken cancellationToken)
     {
         _context.Clients.Update(client);
-
-        await _context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 }

@@ -1,5 +1,7 @@
 ﻿using Funds.Api.Repositories;
 using Funds.Api.Repositories.Interfaces;
+using Funds.Api.Services;
+using Funds.Api.Services.Interfaces;
 
 namespace Funds.Api.Extensions;
 
@@ -11,6 +13,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFundRepository, FundRepository>();
         services.AddScoped<IClientPositionRepository, ClientPositionRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOrderService, OrderService>();
 
         return services;
     }

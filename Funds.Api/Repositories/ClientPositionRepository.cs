@@ -28,14 +28,11 @@ public class ClientPositionRepository : IClientPositionRepository
     public async Task AddAsync(ClientPosition position, CancellationToken cancellationToken)
     {
         await _context.ClientPositions.AddAsync(position, cancellationToken);
-
-        await _context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task UpdateAsync(ClientPosition position, CancellationToken cancellationToken)
+    public Task UpdateAsync(ClientPosition position, CancellationToken cancellationToken)
     {
         _context.ClientPositions.Update(position);
-
-        await _context.SaveChangesAsync(cancellationToken);
+        return Task.CompletedTask;
     }
 }
