@@ -10,9 +10,13 @@ on:
       - main
       - master
 
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: funds-api
+
 jobs:
-  build-test-and-docker:
-    name: Build Test and Docker
+  build-test-and-push:
+    name: Build Test and Push Docker Image
     runs-on: ubuntu-latest
 
     steps:
@@ -33,5 +37,19 @@ jobs:
       - name: Run tests
         run: dotnet test ./Funds.Api.Tests/Funds.Api.Tests.csproj --configuration Release --no-build --verbosity normal
 
-      - name: Build Docker image
-        run: docker build -t funds-api ./Funds.Api
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build tag and push Docker image to ECR
+        run: |
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:${{ github.sha }}
+          docker build -t $IMAGE_URI ./Funds.Api
+          docker push $IMAGE_URI
+          echo "Image pushed: $IMAGE_URI"
