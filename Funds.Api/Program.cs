@@ -36,6 +36,7 @@ using (var scope = app.Services.CreateScope())
     await DatabaseSeed.SeedAsync(context);
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseAuthorization();

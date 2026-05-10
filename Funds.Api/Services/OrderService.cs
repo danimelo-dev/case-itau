@@ -15,34 +15,44 @@ public class OrderService : IOrderService
     private readonly IFundRepository _fundRepository;
     private readonly IClientPositionRepository _clientPositionRepository;
     private readonly IOrderRepository _orderRepository;
+    private readonly ILogger<OrderService> _logger;
 
     public OrderService(
         AppDbContext context,
         IClientRepository clientRepository,
         IFundRepository fundRepository,
         IClientPositionRepository clientPositionRepository,
-        IOrderRepository orderRepository)
+        IOrderRepository orderRepository,
+        ILogger<OrderService> logger)
     {
         _context = context;
         _clientRepository = clientRepository;
         _fundRepository = fundRepository;
         _clientPositionRepository = clientPositionRepository;
         _orderRepository = orderRepository;
+        _logger = logger;
     }
 
     public async Task<OrderResponse> CreateImmediateOrderAsync(
         CreateImmediateOrderRequest request,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Processing immediate order. ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, Quantity: {Quantity}",
+            request.IdCliente,
+            request.IdFundo,
+            request.TipoOperacao,
+            request.QuantidadeCotas);
+
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
         var client = await GetClientOrThrowAsync(request.IdCliente, cancellationToken);
         var fund = await GetFundOrThrowAsync(request.IdFundo, cancellationToken);
 
-        var valorOperacao = request.QuantidadeCotas * fund.ValorCota;
-
         ValidateQuantity(request.QuantidadeCotas);
         ValidateCutOff(fund);
+
+        var valorOperacao = request.QuantidadeCotas * fund.ValorCota;
 
         var order = new Order
         {
@@ -63,7 +73,6 @@ public class OrderService : IOrderService
             await ProcessImmediateInvestmentAsync(
                 client,
                 fund,
-                order,
                 request.QuantidadeCotas,
                 valorOperacao,
                 cancellationToken);
@@ -73,7 +82,6 @@ public class OrderService : IOrderService
             await ProcessImmediateRedemptionAsync(
                 client,
                 fund,
-                order,
                 request.QuantidadeCotas,
                 valorOperacao,
                 cancellationToken);
@@ -88,6 +96,16 @@ public class OrderService : IOrderService
         await _context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        _logger.LogInformation(
+            "Immediate order processed successfully. OrderId: {OrderId}, ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, ExecutionType: {ExecutionType}, Amount: {Amount}, Status: {Status}",
+            order.IdOrdem,
+            order.IdCliente,
+            order.IdFundo,
+            order.TipoOperacao,
+            order.TipoExecucao,
+            order.ValorOperacao,
+            order.Status);
+
         return new OrderResponse
         {
             IdOrdem = order.IdOrdem,
@@ -100,6 +118,14 @@ public class OrderService : IOrderService
         CreateScheduledOrderRequest request,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Processing scheduled order. ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, Quantity: {Quantity}, ScheduledDate: {ScheduledDate}",
+            request.IdCliente,
+            request.IdFundo,
+            request.TipoOperacao,
+            request.QuantidadeCotas,
+            request.DataAgendamento);
+
         var client = await GetClientOrThrowAsync(request.IdCliente, cancellationToken);
         var fund = await GetFundOrThrowAsync(request.IdFundo, cancellationToken);
 
@@ -125,9 +151,6 @@ public class OrderService : IOrderService
         if (request.TipoOperacao == OrderType.Aporte)
         {
             ValidateFundCapacity(fund);
-
-            // Regra do case:
-            // Aplicação agendada NÃO valida saldo agora.
         }
         else if (request.TipoOperacao == OrderType.Resgate)
         {
@@ -149,6 +172,16 @@ public class OrderService : IOrderService
         await _orderRepository.AddAsync(order, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
 
+        _logger.LogInformation(
+            "Scheduled order created successfully. OrderId: {OrderId}, ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, ScheduledDate: {ScheduledDate}, Amount: {Amount}, Status: {Status}",
+            order.IdOrdem,
+            order.IdCliente,
+            order.IdFundo,
+            order.TipoOperacao,
+            order.DataAgendamento,
+            order.ValorOperacao,
+            order.Status);
+
         return new OrderResponse
         {
             IdOrdem = order.IdOrdem,
@@ -161,6 +194,10 @@ public class OrderService : IOrderService
         int? idCliente,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Getting orders. ClientId filter: {ClientId}",
+            idCliente);
+
         var orders = await _orderRepository.GetAllAsync(idCliente, cancellationToken);
 
         return orders.Select(order => new OrderResponse
@@ -174,7 +211,6 @@ public class OrderService : IOrderService
     private async Task ProcessImmediateInvestmentAsync(
         Client client,
         Fund fund,
-        Order order,
         int quantidadeCotas,
         decimal valorOperacao,
         CancellationToken cancellationToken)
@@ -225,7 +261,6 @@ public class OrderService : IOrderService
     private async Task ProcessImmediateRedemptionAsync(
         Client client,
         Fund fund,
-        Order order,
         int quantidadeCotas,
         decimal valorOperacao,
         CancellationToken cancellationToken)
@@ -258,30 +293,22 @@ public class OrderService : IOrderService
         await _clientRepository.UpdateAsync(client, cancellationToken);
     }
 
-    private async Task<Client> GetClientOrThrowAsync(
-        int idCliente,
-        CancellationToken cancellationToken)
+    private async Task<Client> GetClientOrThrowAsync(int idCliente, CancellationToken cancellationToken)
     {
         var client = await _clientRepository.GetByIdAsync(idCliente, cancellationToken);
 
         if (client is null)
-        {
             throw new BusinessException("Cliente não encontrado.");
-        }
 
         return client;
     }
 
-    private async Task<Fund> GetFundOrThrowAsync(
-        int idFundo,
-        CancellationToken cancellationToken)
+    private async Task<Fund> GetFundOrThrowAsync(int idFundo, CancellationToken cancellationToken)
     {
         var fund = await _fundRepository.GetByIdAsync(idFundo, cancellationToken);
 
         if (fund is null)
-        {
             throw new BusinessException("Fundo não encontrado.");
-        }
 
         return fund;
     }
@@ -289,17 +316,13 @@ public class OrderService : IOrderService
     private static void ValidateQuantity(int quantidadeCotas)
     {
         if (quantidadeCotas <= 0)
-        {
             throw new BusinessException("Quantidade de cotas deve ser maior que zero.");
-        }
     }
 
     private static void ValidateFundCapacity(Fund fund)
     {
         if (fund.StatusCaptacao == FundStatus.Fechado)
-        {
             throw new BusinessException("Fundo fechado para captação.");
-        }
     }
 
     private static void ValidateCutOff(Fund fund)
@@ -307,9 +330,7 @@ public class OrderService : IOrderService
         var currentTime = DateTime.Now.TimeOfDay;
 
         if (currentTime > fund.HorarioCorte)
-        {
             throw new BusinessException("Ordem imediata recusada por estar fora da janela de horário de corte.");
-        }
     }
 
     private static void ValidateScheduledDate(DateTime dataAgendamento)
@@ -318,13 +339,9 @@ public class OrderService : IOrderService
         var scheduledDate = dataAgendamento.Date;
 
         if (scheduledDate <= today)
-        {
             throw new BusinessException("Agendamento deve ser realizado para uma data futura a partir de D+1.");
-        }
 
         if (scheduledDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-        {
             throw new BusinessException("Data de agendamento deve ser um dia útil.");
-        }
     }
 }
