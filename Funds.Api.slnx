@@ -1,4 +1,15 @@
 <Solution>
+  <Folder Name="/infra/" />
+  <Folder Name="/infra/terraform/">
+    <File Path="main.tf" />
+    <File Path="outputs.tf" />
+    <File Path="providers.tf" />
+    <File Path="terraform.tfvars" />
+    <File Path="variables.tf" />
+  </Folder>
+  <Folder Name="/Itens de Solução/">
+    <File Path="docker-compose.yml" />
+  </Folder>
   <Project Path="Funds.Api.Tests/Funds.Api.Tests.csproj" Id="e47ca7ab-d807-4aef-8eba-8a7de10f45e3" />
   <Project Path="Funds.Api/Funds.Api.csproj" />
 </Solution>
