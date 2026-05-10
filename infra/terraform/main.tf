@@ -54,53 +54,22 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_ecs_task_definition" "funds_api" {
-  family                   = "funds-api-task"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+resource "aws_iam_role_policy" "ecs_task_execution_secrets_policy" {
+  name = "funds-api-ecs-task-execution-secrets-policy"
+  role = aws_iam_role.ecs_task_execution_role.id
 
-  container_definitions = jsonencode([
-    {
-      name      = "funds-api"
-      image     = "${aws_ecr_repository.funds_api.repository_url}:latest"
-      essential = true
-
-      portMappings = [
-        {
-          containerPort = 8080
-          hostPort      = 8080
-          protocol      = "tcp"
-        }
-      ]
-
-      environment = [
-        {
-          name  = "ASPNETCORE_ENVIRONMENT"
-          value = "Production"
-        },
-        {
-          name  = "ASPNETCORE_URLS"
-          value = "http://+:8080"
-        }
-      ]
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.funds_api.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "ecs"
-        }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = aws_secretsmanager_secret.db_credentials.arn
       }
-    }
-  ])
-
-  tags = {
-    Project = "case-itau"
-  }
+    ]
+  })
 }
 
 resource "aws_vpc" "main" {
@@ -199,7 +168,7 @@ resource "aws_security_group" "alb" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP"
+    description = "HTTP from internet"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -279,15 +248,6 @@ resource "aws_secretsmanager_secret" "db_credentials" {
   }
 }
 
-resource "aws_secretsmanager_secret_version" "db_credentials" {
-  secret_id = aws_secretsmanager_secret.db_credentials.id
-
-  secret_string = jsonencode({
-    username = "admin"
-    password = "CaseItau123!"
-  })
-}
-
 resource "aws_db_subnet_group" "main" {
   name = "funds-api-db-subnet-group"
 
@@ -335,6 +295,164 @@ resource "aws_db_instance" "sqlserver" {
 
   tags = {
     Name    = "funds-api-sqlserver"
+    Project = "case-itau"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "db_credentials" {
+  secret_id = aws_secretsmanager_secret.db_credentials.id
+
+  secret_string = jsonencode({
+    username         = "admin"
+    password         = "CaseItau123!"
+    connectionString = "Server=${aws_db_instance.sqlserver.address},1433;Database=FundsDb;User Id=admin;Password=CaseItau123!;TrustServerCertificate=True"
+  })
+}
+
+resource "aws_ecs_task_definition" "funds_api" {
+  family                   = "funds-api-task"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "funds-api"
+      image     = "${aws_ecr_repository.funds_api.repository_url}:latest"
+      essential = true
+
+      portMappings = [
+        {
+          containerPort = 8080
+          hostPort      = 8080
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "ASPNETCORE_ENVIRONMENT"
+          value = "Production"
+        },
+        {
+          name  = "ASPNETCORE_URLS"
+          value = "http://+:8080"
+        }
+      ]
+
+      secrets = [
+        {
+          name      = "ConnectionStrings__DefaultConnection"
+          valueFrom = "${aws_secretsmanager_secret.db_credentials.arn}:connectionString::"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.funds_api.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+    }
+  ])
+
+  tags = {
+    Project = "case-itau"
+  }
+}
+
+resource "aws_lb" "main" {
+  name               = "funds-api-alb"
+  load_balancer_type = "application"
+  internal           = false
+
+  security_groups = [
+    aws_security_group.alb.id
+  ]
+
+  subnets = [
+    aws_subnet.public_a.id,
+    aws_subnet.public_b.id
+  ]
+
+  tags = {
+    Name    = "funds-api-alb"
+    Project = "case-itau"
+  }
+}
+
+resource "aws_lb_target_group" "funds_api" {
+  name        = "funds-api-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.main.id
+
+  health_check {
+    path                = "/health"
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  tags = {
+    Name    = "funds-api-tg"
+    Project = "case-itau"
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.funds_api.arn
+  }
+}
+
+resource "aws_ecs_service" "funds_api" {
+  name            = "funds-api-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.funds_api.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets = [
+      aws_subnet.public_a.id,
+      aws_subnet.public_b.id
+    ]
+
+    security_groups = [
+      aws_security_group.ecs.id
+    ]
+
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.funds_api.arn
+    container_name   = "funds-api"
+    container_port   = 8080
+  }
+
+  depends_on = [
+    aws_lb_listener.http,
+    aws_db_instance.sqlserver,
+    aws_secretsmanager_secret_version.db_credentials
+  ]
+
+  tags = {
+    Name    = "funds-api-service"
     Project = "case-itau"
   }
 }
