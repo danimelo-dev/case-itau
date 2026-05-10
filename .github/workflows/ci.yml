@@ -11,8 +11,8 @@ on:
       - master
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  build-test-and-docker:
+    name: Build Test and Docker
     runs-on: ubuntu-latest
 
     steps:
@@ -27,8 +27,11 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore ./Funds.Api.slnx
 
-      - name: Build
+      - name: Build solution
         run: dotnet build ./Funds.Api.slnx --configuration Release --no-restore
 
       - name: Run tests
         run: dotnet test ./Funds.Api.Tests/Funds.Api.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Build Docker image
+        run: docker build -t funds-api ./Funds.Api
