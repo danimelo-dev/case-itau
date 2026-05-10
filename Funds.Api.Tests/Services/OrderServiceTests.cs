@@ -1,4 +1,5 @@
 ﻿using FluentAssertions;
+using Funds.Api.Common;
 using Funds.Api.DTOs.Requests;
 using Funds.Api.Enums;
 using Funds.Api.Models;
@@ -609,6 +610,16 @@ public class OrderServiceTests
             fundRepository,
             clientPositionRepository,
             orderRepository,
+            new TestDateTimeProvider(),
             NullLogger<OrderService>.Instance);
+    }
+
+    private sealed class TestDateTimeProvider : IDateTimeProvider
+    {
+        public DateTime UtcNow => new(2026, 05, 10, 12, 0, 0, DateTimeKind.Utc);
+
+        public DateTime Today => new(2026, 05, 10);
+
+        public TimeSpan CurrentTimeOfDay => new(12, 0, 0);
     }
 }

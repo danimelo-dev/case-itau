@@ -1,4 +1,5 @@
-﻿using Funds.Api.DTOs.Requests;
+﻿using Funds.Api.Common;
+using Funds.Api.DTOs.Requests;
 using Funds.Api.DTOs.Responses;
 using Funds.Api.Enums;
 using Funds.Api.Models;
@@ -15,6 +16,7 @@ public class OrderService : IOrderService
     private readonly IFundRepository _fundRepository;
     private readonly IClientPositionRepository _clientPositionRepository;
     private readonly IOrderRepository _orderRepository;
+    private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<OrderService> _logger;
 
     public OrderService(
@@ -23,6 +25,7 @@ public class OrderService : IOrderService
         IFundRepository fundRepository,
         IClientPositionRepository clientPositionRepository,
         IOrderRepository orderRepository,
+        IDateTimeProvider dateTimeProvider,
         ILogger<OrderService> logger)
     {
         _context = context;
@@ -30,6 +33,7 @@ public class OrderService : IOrderService
         _fundRepository = fundRepository;
         _clientPositionRepository = clientPositionRepository;
         _orderRepository = orderRepository;
+        _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
 
@@ -53,6 +57,7 @@ public class OrderService : IOrderService
         ValidateCutOff(fund);
 
         var valorOperacao = request.QuantidadeCotas * fund.ValorCota;
+        var now = _dateTimeProvider.UtcNow;
 
         var order = new Order
         {
@@ -64,8 +69,8 @@ public class OrderService : IOrderService
             ValorCota = fund.ValorCota,
             ValorOperacao = valorOperacao,
             Status = OrderStatus.Executed,
-            CriadoEm = DateTime.UtcNow,
-            ExecutadoEm = DateTime.UtcNow
+            CriadoEm = now,
+            ExecutadoEm = now
         };
 
         if (request.TipoOperacao == OrderType.Aporte)
@@ -106,12 +111,7 @@ public class OrderService : IOrderService
             order.ValorOperacao,
             order.Status);
 
-        return new OrderResponse
-        {
-            IdOrdem = order.IdOrdem,
-            Status = order.Status.ToString(),
-            MotivoRejeicao = order.MotivoRejeicao
-        };
+        return MapToResponse(order);
     }
 
     public async Task<OrderResponse> CreateScheduledOrderAsync(
@@ -145,7 +145,7 @@ public class OrderService : IOrderService
             ValorOperacao = valorOperacao,
             DataAgendamento = request.DataAgendamento.Date,
             Status = OrderStatus.Scheduled,
-            CriadoEm = DateTime.UtcNow
+            CriadoEm = _dateTimeProvider.UtcNow
         };
 
         if (request.TipoOperacao == OrderType.Aporte)
@@ -182,12 +182,7 @@ public class OrderService : IOrderService
             order.ValorOperacao,
             order.Status);
 
-        return new OrderResponse
-        {
-            IdOrdem = order.IdOrdem,
-            Status = order.Status.ToString(),
-            MotivoRejeicao = order.MotivoRejeicao
-        };
+        return MapToResponse(order);
     }
 
     public async Task<List<OrderResponse>> GetOrdersAsync(
@@ -200,12 +195,7 @@ public class OrderService : IOrderService
 
         var orders = await _orderRepository.GetAllAsync(idCliente, cancellationToken);
 
-        return orders.Select(order => new OrderResponse
-        {
-            IdOrdem = order.IdOrdem,
-            Status = order.Status.ToString(),
-            MotivoRejeicao = order.MotivoRejeicao
-        }).ToList();
+        return orders.Select(MapToResponse).ToList();
     }
 
     private async Task ProcessImmediateInvestmentAsync(
@@ -227,8 +217,10 @@ public class OrderService : IOrderService
             throw new BusinessException("Saldo insuficiente para realizar o aporte.");
         }
 
+        var now = _dateTimeProvider.UtcNow;
+
         client.SaldoDisponivel -= valorOperacao;
-        client.AtualizadoEm = DateTime.UtcNow;
+        client.AtualizadoEm = now;
 
         var position = await _clientPositionRepository.GetByClientAndFundAsync(
             client.IdCliente,
@@ -242,7 +234,7 @@ public class OrderService : IOrderService
                 IdCliente = client.IdCliente,
                 IdFundo = fund.IdFundo,
                 QuantidadeCotas = quantidadeCotas,
-                CriadoEm = DateTime.UtcNow
+                CriadoEm = now
             };
 
             await _clientPositionRepository.AddAsync(position, cancellationToken);
@@ -250,7 +242,7 @@ public class OrderService : IOrderService
         else
         {
             position.QuantidadeCotas += quantidadeCotas;
-            position.AtualizadoEm = DateTime.UtcNow;
+            position.AtualizadoEm = now;
 
             await _clientPositionRepository.UpdateAsync(position, cancellationToken);
         }
@@ -283,11 +275,13 @@ public class OrderService : IOrderService
             throw new BusinessException("Resgate parcial deixaria saldo remanescente abaixo do mínimo de permanência.");
         }
 
+        var now = _dateTimeProvider.UtcNow;
+
         position.QuantidadeCotas -= quantidadeCotas;
-        position.AtualizadoEm = DateTime.UtcNow;
+        position.AtualizadoEm = now;
 
         client.SaldoDisponivel += valorOperacao;
-        client.AtualizadoEm = DateTime.UtcNow;
+        client.AtualizadoEm = now;
 
         await _clientPositionRepository.UpdateAsync(position, cancellationToken);
         await _clientRepository.UpdateAsync(client, cancellationToken);
@@ -325,23 +319,30 @@ public class OrderService : IOrderService
             throw new BusinessException("Fundo fechado para captação.");
     }
 
-    private static void ValidateCutOff(Fund fund)
+    private void ValidateCutOff(Fund fund)
     {
-        var currentTime = DateTime.Now.TimeOfDay;
-
-        if (currentTime > fund.HorarioCorte)
+        if (_dateTimeProvider.CurrentTimeOfDay > fund.HorarioCorte)
             throw new BusinessException("Ordem imediata recusada por estar fora da janela de horário de corte.");
     }
 
-    private static void ValidateScheduledDate(DateTime dataAgendamento)
+    private void ValidateScheduledDate(DateTime dataAgendamento)
     {
-        var today = DateTime.Today;
         var scheduledDate = dataAgendamento.Date;
 
-        if (scheduledDate <= today)
+        if (scheduledDate <= _dateTimeProvider.Today)
             throw new BusinessException("Agendamento deve ser realizado para uma data futura a partir de D+1.");
 
         if (scheduledDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
             throw new BusinessException("Data de agendamento deve ser um dia útil.");
+    }
+
+    private static OrderResponse MapToResponse(Order order)
+    {
+        return new OrderResponse
+        {
+            IdOrdem = order.IdOrdem,
+            Status = order.Status.ToString(),
+            MotivoRejeicao = order.MotivoRejeicao
+        };
     }
 }
