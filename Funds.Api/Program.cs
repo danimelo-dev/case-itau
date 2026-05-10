@@ -2,6 +2,7 @@ using Funds.Api.Extensions;
 using Funds.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Funds.Api.Persistence.Seed;
+using Funds.Api.Middlewares;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +36,7 @@ using (var scope = app.Services.CreateScope())
     await DatabaseSeed.SeedAsync(context);
 }
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();

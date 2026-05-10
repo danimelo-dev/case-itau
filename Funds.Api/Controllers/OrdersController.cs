@@ -1,5 +1,4 @@
 ﻿using Funds.Api.DTOs.Requests;
-using Funds.Api.Models;
 using Funds.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,21 +20,11 @@ public class OrdersController : ControllerBase
         [FromBody] CreateImmediateOrderRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await _orderService.CreateImmediateOrderAsync(
-                request,
-                cancellationToken);
+        var response = await _orderService.CreateImmediateOrderAsync(
+            request,
+            cancellationToken);
 
-            return Ok(response);
-        }
-        catch (BusinessException ex)
-        {
-            return BadRequest(new
-            {
-                message = ex.Message
-            });
-        }
+        return Ok(response);
     }
 
     [HttpPost("agendamento")]
@@ -43,21 +32,11 @@ public class OrdersController : ControllerBase
         [FromBody] CreateScheduledOrderRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var response = await _orderService.CreateScheduledOrderAsync(
-                request,
-                cancellationToken);
+        var response = await _orderService.CreateScheduledOrderAsync(
+            request,
+            cancellationToken);
 
-            return Ok(response);
-        }
-        catch (BusinessException ex)
-        {
-            return BadRequest(new
-            {
-                message = ex.Message
-            });
-        }
+        return Ok(response);
     }
 
     [HttpGet]
