@@ -205,8 +205,10 @@ public class OrderService : IOrderService
         if (cachedOrders is not null)
         {
             _logger.LogInformation(
-                "Returning orders from cache. ClientId filter: {ClientId}",
-                idCliente);
+                "Orders query completed. ClientId: {ClientId}, TotalOrders: {TotalOrders}, Source: {Source}",
+                idCliente,
+                cachedOrders.Count,
+                "Cache");
 
             return cachedOrders;
         }
@@ -218,6 +220,12 @@ public class OrderService : IOrderService
         var orders = await _orderRepository.GetAllAsync(idCliente, cancellationToken);
 
         var response = orders.Select(MapToResponse).ToList();
+
+        _logger.LogInformation(
+            "Orders query completed. ClientId: {ClientId}, TotalOrders: {TotalOrders}, Source: {Source}",
+            idCliente,
+            response.Count,
+            "Database");
 
         await _cacheService.SetAsync(
             cacheKey,

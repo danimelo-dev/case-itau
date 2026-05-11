@@ -102,7 +102,20 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseSerilogRequestLogging(options =>
 {
     options.MessageTemplate =
-        "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+        "HTTP {RequestMethod} {RequestPath}{QueryString} responded {StatusCode} in {Elapsed:0.0000} ms";
+
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
+        diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme);
+        diagnosticContext.Set("QueryString", httpContext.Request.QueryString.Value);
+        diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
+
+        if (httpContext.Items.TryGetValue(CorrelationIdMiddleware.CorrelationIdHeader, out var correlationId))
+        {
+            diagnosticContext.Set("CorrelationId", correlationId?.ToString());
+        }
+    };
 });
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
