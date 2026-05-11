@@ -9,7 +9,8 @@ namespace Funds.Api.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddApplicationDependencies(this IServiceCollection services)
+    public static IServiceCollection AddApplicationDependencies(
+        this IServiceCollection services)
     {
         AddRepositories(services);
         AddServices(services);
@@ -21,8 +22,11 @@ public static class ServiceCollectionExtensions
     private static void AddRepositories(IServiceCollection services)
     {
         services.AddScoped<IClientRepository, ClientRepository>();
+
         services.AddScoped<IFundRepository, FundRepository>();
+
         services.AddScoped<IClientPositionRepository, ClientPositionRepository>();
+
         services.AddScoped<IOrderRepository, OrderRepository>();
     }
 
@@ -37,6 +41,19 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 
-        services.AddScoped<ICacheService, DistributedCacheService>();
+        services.AddScoped<DistributedCacheService>();
+
+        services.AddScoped<ICacheService>(provider =>
+        {
+            var distributedCacheService =
+                provider.GetRequiredService<DistributedCacheService>();
+
+            var logger =
+                provider.GetRequiredService<ILogger<ResilientCacheService>>();
+
+            return new ResilientCacheService(
+                distributedCacheService,
+                logger);
+        });
     }
 }
