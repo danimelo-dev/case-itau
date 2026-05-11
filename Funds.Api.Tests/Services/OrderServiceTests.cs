@@ -1,4 +1,5 @@
 ﻿using FluentAssertions;
+using Funds.Api.Cache;
 using Funds.Api.Common;
 using Funds.Api.DTOs.Requests;
 using Funds.Api.Enums;
@@ -6,7 +7,6 @@ using Funds.Api.Models;
 using Funds.Api.Persistence;
 using Funds.Api.Repositories;
 using Funds.Api.Services;
-using Funds.Api.Cache;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -381,7 +381,7 @@ public class OrderServiceTests
             IdFundo = 1,
             TipoOperacao = OrderType.Aporte,
             QuantidadeCotas = 10,
-            DataAgendamento = DateTime.Today
+            DataAgendamento = new DateTime(2026, 05, 10)
         };
 
         // Act
