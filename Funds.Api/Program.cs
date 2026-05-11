@@ -95,34 +95,40 @@ else
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 
-var secretKey = jwtSettings["SecretKey"];
+var jwtIssuer = jwtSettings["Issuer"];
+var jwtAudience = jwtSettings["Audience"];
+var jwtSecretKey = jwtSettings["SecretKey"];
 
-var key = Encoding.UTF8.GetBytes(secretKey!);
+if (string.IsNullOrWhiteSpace(jwtIssuer) ||
+    string.IsNullOrWhiteSpace(jwtAudience) ||
+    string.IsNullOrWhiteSpace(jwtSecretKey))
+{
+    throw new InvalidOperationException(
+        "JWT configuration is missing. Check Jwt__Issuer, Jwt__Audience and Jwt__SecretKey.");
+}
+
+var key = Encoding.UTF8.GetBytes(jwtSecretKey);
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.RequireHttpsMetadata = false;
-
         options.SaveToken = true;
 
-        options.TokenValidationParameters =
-            new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
 
-                ValidIssuer = jwtSettings["Issuer"],
-                ValidAudience = jwtSettings["Audience"],
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(key),
 
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(key),
-
-                ClockSkew = TimeSpan.Zero
-            };
+            ClockSkew = TimeSpan.Zero
+        };
     });
 
 builder.Services.AddAuthorization();

@@ -62,9 +62,14 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.db_credentials.arn
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.db_credentials.arn,
+          aws_secretsmanager_secret.jwt_secret.arn
+        ]
       }
     ]
   })
@@ -272,6 +277,14 @@ resource "aws_secretsmanager_secret" "db_credentials" {
   }
 }
 
+resource "aws_secretsmanager_secret" "jwt_secret" {
+  name = "funds-api-jwt-secret"
+
+  tags = {
+    Project = "case-itau"
+  }
+}
+
 resource "aws_db_subnet_group" "main" {
   name = "funds-api-db-subnet-group"
 
@@ -326,6 +339,14 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
     username         = "admin"
     password         = "CaseItau123!"
     connectionString = "Server=${aws_db_instance.sqlserver.address},1433;Database=FundsDb;User Id=admin;Password=CaseItau123!;TrustServerCertificate=True"
+  })
+}
+
+resource "aws_secretsmanager_secret_version" "jwt_secret" {
+  secret_id = aws_secretsmanager_secret.jwt_secret.id
+
+  secret_string = jsonencode({
+    secretKey = "PROD_SECRET_KEY_123456789_123456789_123456789"
   })
 }
 
@@ -406,6 +427,14 @@ resource "aws_ecs_task_definition" "funds_api" {
         {
           name  = "ConnectionStrings__Redis"
           value = "${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379"
+        },
+        {
+          name  = "Jwt__Issuer"
+          value = "funds-api"
+        },
+        {
+          name  = "Jwt__Audience"
+          value = "funds-api-client"
         }
       ]
 
@@ -413,6 +442,10 @@ resource "aws_ecs_task_definition" "funds_api" {
         {
           name      = "ConnectionStrings__DefaultConnection"
           valueFrom = "${aws_secretsmanager_secret.db_credentials.arn}:connectionString::"
+        },
+        {
+          name      = "Jwt__SecretKey"
+          valueFrom = "${aws_secretsmanager_secret.jwt_secret.arn}:secretKey::"
         }
       ]
 
@@ -463,10 +496,10 @@ resource "aws_lb_target_group" "funds_api" {
     path                = "/health/live"
     protocol            = "HTTP"
     matcher             = "200-399"
-    interval            = 30
-    timeout             = 5
+    interval            = 60
+    timeout             = 10
     healthy_threshold   = 2
-    unhealthy_threshold = 3
+    unhealthy_threshold = 5
   }
 
   tags = {
@@ -487,12 +520,13 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_ecs_service" "funds_api" {
-  name                              = "funds-api-service"
-  cluster                           = aws_ecs_cluster.main.id
-  task_definition                   = aws_ecs_task_definition.funds_api.arn
-  desired_count                     = 1
-  launch_type                       = "FARGATE"
-  health_check_grace_period_seconds = 120
+  name            = "funds-api-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.funds_api.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  health_check_grace_period_seconds = 300
 
   network_configuration {
     subnets = [
@@ -517,6 +551,7 @@ resource "aws_ecs_service" "funds_api" {
     aws_lb_listener.http,
     aws_db_instance.sqlserver,
     aws_secretsmanager_secret_version.db_credentials,
+    aws_secretsmanager_secret_version.jwt_secret,
     aws_elasticache_replication_group.redis
   ]
 
