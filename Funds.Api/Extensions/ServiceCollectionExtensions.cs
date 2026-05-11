@@ -1,4 +1,5 @@
-﻿using Funds.Api.Common;
+﻿using Funds.Api.Cache;
+using Funds.Api.Common;
 using Funds.Api.Repositories;
 using Funds.Api.Repositories.Interfaces;
 using Funds.Api.Services;
@@ -35,5 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
+
+        services.AddScoped<ICacheService, DistributedCacheService>();
     }
 }

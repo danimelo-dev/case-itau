@@ -62,10 +62,8 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
         Resource = aws_secretsmanager_secret.db_credentials.arn
       }
     ]
@@ -240,6 +238,32 @@ resource "aws_security_group" "rds" {
   }
 }
 
+resource "aws_security_group" "redis" {
+  name        = "funds-api-redis-sg"
+  description = "ElastiCache Redis security group"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "Redis from ECS"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "funds-api-redis-sg"
+    Project = "case-itau"
+  }
+}
+
 resource "aws_secretsmanager_secret" "db_credentials" {
   name = "funds-api-db-credentials"
 
@@ -283,15 +307,11 @@ resource "aws_db_instance" "sqlserver" {
 
   publicly_accessible = false
 
-  skip_final_snapshot = true
-
-  multi_az = false
-
-  storage_type = "gp2"
-
+  skip_final_snapshot     = true
+  multi_az                = false
+  storage_type            = "gp2"
   backup_retention_period = 0
-
-  deletion_protection = false
+  deletion_protection     = false
 
   tags = {
     Name    = "funds-api-sqlserver"
@@ -307,6 +327,49 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
     password         = "CaseItau123!"
     connectionString = "Server=${aws_db_instance.sqlserver.address},1433;Database=FundsDb;User Id=admin;Password=CaseItau123!;TrustServerCertificate=True"
   })
+}
+
+resource "aws_elasticache_subnet_group" "redis" {
+  name = "funds-api-redis-subnet-group"
+
+  subnet_ids = [
+    aws_subnet.private_a.id,
+    aws_subnet.private_b.id
+  ]
+
+  tags = {
+    Name    = "funds-api-redis-subnet-group"
+    Project = "case-itau"
+  }
+}
+
+resource "aws_elasticache_replication_group" "redis" {
+  replication_group_id = "funds-api-redis"
+  description          = "Redis cache for funds-api"
+
+  engine         = "redis"
+  engine_version = "7.0"
+  node_type      = "cache.t3.micro"
+
+  num_cache_clusters         = 1
+  automatic_failover_enabled = false
+  multi_az_enabled           = false
+
+  subnet_group_name = aws_elasticache_subnet_group.redis.name
+
+  security_group_ids = [
+    aws_security_group.redis.id
+  ]
+
+  port = 6379
+
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = false
+
+  tags = {
+    Name    = "funds-api-redis"
+    Project = "case-itau"
+  }
 }
 
 resource "aws_ecs_task_definition" "funds_api" {
@@ -339,6 +402,10 @@ resource "aws_ecs_task_definition" "funds_api" {
         {
           name  = "ASPNETCORE_URLS"
           value = "http://+:8080"
+        },
+        {
+          name  = "ConnectionStrings__Redis"
+          value = "${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379"
         }
       ]
 
@@ -393,7 +460,7 @@ resource "aws_lb_target_group" "funds_api" {
   vpc_id      = aws_vpc.main.id
 
   health_check {
-    path                = "/health"
+    path                = "/health/ready"
     protocol            = "HTTP"
     matcher             = "200-399"
     interval            = 30
@@ -448,7 +515,8 @@ resource "aws_ecs_service" "funds_api" {
   depends_on = [
     aws_lb_listener.http,
     aws_db_instance.sqlserver,
-    aws_secretsmanager_secret_version.db_credentials
+    aws_secretsmanager_secret_version.db_credentials,
+    aws_elasticache_replication_group.redis
   ]
 
   tags = {

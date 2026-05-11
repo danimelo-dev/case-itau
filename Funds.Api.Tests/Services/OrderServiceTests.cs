@@ -6,6 +6,7 @@ using Funds.Api.Models;
 using Funds.Api.Persistence;
 using Funds.Api.Repositories;
 using Funds.Api.Services;
+using Funds.Api.Cache;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -611,6 +612,7 @@ public class OrderServiceTests
             clientPositionRepository,
             orderRepository,
             new TestDateTimeProvider(),
+            new TestCacheService(),
             NullLogger<OrderService>.Instance);
     }
 
@@ -621,5 +623,34 @@ public class OrderServiceTests
         public DateTime Today => new(2026, 05, 10);
 
         public TimeSpan CurrentTimeOfDay => new(12, 0, 0);
+    }
+
+    private sealed class TestCacheService : ICacheService
+    {
+        public List<string> RemovedKeys { get; } = new();
+
+        public Task<T?> GetAsync<T>(
+            string key,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult<T?>(default);
+        }
+
+        public Task SetAsync<T>(
+            string key,
+            T value,
+            TimeSpan expiration,
+            CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(
+            string key,
+            CancellationToken cancellationToken)
+        {
+            RemovedKeys.Add(key);
+            return Task.CompletedTask;
+        }
     }
 }

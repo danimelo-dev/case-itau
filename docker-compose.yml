@@ -10,9 +10,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: "Server=funds-sqlserver,1433;Database=FundsDb;User Id=sa;Password=FundsApi@2026;TrustServerCertificate=True"
+      ConnectionStrings__DefaultConnection: Server=funds-sqlserver,1433;Database=FundsDb;User Id=sa;Password=FundsApi@2026;TrustServerCertificate=True
+      ConnectionStrings__Redis: funds-redis:6379
     depends_on:
       - funds-sqlserver
+      - funds-redis
 
   funds-sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -24,6 +26,12 @@ services:
       MSSQL_SA_PASSWORD: "FundsApi@2026"
     volumes:
       - funds-sqlserver-data:/var/opt/mssql
+
+  funds-redis:
+    image: redis:7-alpine
+    container_name: funds-redis
+    ports:
+      - "6379:6379"
 
 volumes:
   funds-sqlserver-data:

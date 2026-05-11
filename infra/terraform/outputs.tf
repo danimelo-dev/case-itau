@@ -25,3 +25,7 @@ output "ecs_service_name" {
 output "rds_endpoint" {
   value = aws_db_instance.sqlserver.endpoint
 }
+
+output "redis_endpoint" {
+  value = aws_elasticache_replication_group.redis.primary_endpoint_address
+}

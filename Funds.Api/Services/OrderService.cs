@@ -4,6 +4,7 @@ using Funds.Api.DTOs.Responses;
 using Funds.Api.Enums;
 using Funds.Api.Models;
 using Funds.Api.Persistence;
+using Funds.Api.Cache;
 using Funds.Api.Repositories.Interfaces;
 using Funds.Api.Services.Interfaces;
 
@@ -17,7 +18,9 @@ public class OrderService : IOrderService
     private readonly IClientPositionRepository _clientPositionRepository;
     private readonly IOrderRepository _orderRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly ICacheService _cacheService;
     private readonly ILogger<OrderService> _logger;
+    
 
     public OrderService(
         AppDbContext context,
@@ -26,6 +29,7 @@ public class OrderService : IOrderService
         IClientPositionRepository clientPositionRepository,
         IOrderRepository orderRepository,
         IDateTimeProvider dateTimeProvider,
+        ICacheService cacheService,
         ILogger<OrderService> logger)
     {
         _context = context;
@@ -34,6 +38,7 @@ public class OrderService : IOrderService
         _clientPositionRepository = clientPositionRepository;
         _orderRepository = orderRepository;
         _dateTimeProvider = dateTimeProvider;
+        _cacheService = cacheService;
         _logger = logger;
     }
 
@@ -100,6 +105,7 @@ public class OrderService : IOrderService
 
         await _context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        await InvalidateOrdersCacheAsync(order.IdCliente, cancellationToken);
 
         _logger.LogInformation(
             "Immediate order processed successfully. OrderId: {OrderId}, ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, ExecutionType: {ExecutionType}, Amount: {Amount}, Status: {Status}",
@@ -171,6 +177,7 @@ public class OrderService : IOrderService
 
         await _orderRepository.AddAsync(order, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
+        await InvalidateOrdersCacheAsync(order.IdCliente, cancellationToken);
 
         _logger.LogInformation(
             "Scheduled order created successfully. OrderId: {OrderId}, ClientId: {ClientId}, FundId: {FundId}, Operation: {Operation}, ScheduledDate: {ScheduledDate}, Amount: {Amount}, Status: {Status}",
@@ -186,16 +193,35 @@ public class OrderService : IOrderService
     }
 
     public async Task<List<OrderResponse>> GetOrdersAsync(
-        int? idCliente,
-        CancellationToken cancellationToken)
+    int? idCliente,
+    CancellationToken cancellationToken)
     {
+        var cacheKey = CacheKeys.Orders(idCliente);
+
+        var cachedOrders = await _cacheService.GetAsync<List<OrderResponse>>(
+            cacheKey,
+            cancellationToken);
+
+        if (cachedOrders is not null)
+        {
+            return cachedOrders;
+        }
+
         _logger.LogInformation(
-            "Getting orders. ClientId filter: {ClientId}",
+            "Getting orders from database. ClientId filter: {ClientId}",
             idCliente);
 
         var orders = await _orderRepository.GetAllAsync(idCliente, cancellationToken);
 
-        return orders.Select(MapToResponse).ToList();
+        var response = orders.Select(MapToResponse).ToList();
+
+        await _cacheService.SetAsync(
+            cacheKey,
+            response,
+            TimeSpan.FromSeconds(60),
+            cancellationToken);
+
+        return response;
     }
 
     private async Task ProcessImmediateInvestmentAsync(
@@ -334,6 +360,19 @@ public class OrderService : IOrderService
 
         if (scheduledDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
             throw new BusinessException("Data de agendamento deve ser um dia útil.");
+    }
+
+    private async Task InvalidateOrdersCacheAsync(
+    int idCliente,
+    CancellationToken cancellationToken)
+    {
+        await _cacheService.RemoveAsync(
+            CacheKeys.Orders(idCliente),
+            cancellationToken);
+
+        await _cacheService.RemoveAsync(
+            CacheKeys.Orders(null),
+            cancellationToken);
     }
 
     private static OrderResponse MapToResponse(Order order)

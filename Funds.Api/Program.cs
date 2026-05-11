@@ -1,8 +1,11 @@
 using Funds.Api.Extensions;
-using Funds.Api.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Funds.Api.Persistence.Seed;
+using Funds.Api.HealthChecks;
 using Funds.Api.Middlewares;
+using Funds.Api.Persistence;
+using Funds.Api.Persistence.Seed;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +23,37 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
+
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(
+        _ => ConnectionMultiplexer.Connect(redisConnectionString));
+
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "funds-api:";
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+
+var healthChecksBuilder = builder.Services
+    .AddHealthChecks()
+    .AddCheck<SqlServerHealthCheck>(
+        name: "sql-server",
+        tags: new[] { "ready" });
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    healthChecksBuilder.AddCheck<RedisHealthCheck>(
+        name: "redis",
+        tags: new[] { "ready" });
+}
 
 builder.Services.AddApplicationDependencies();
 
@@ -50,5 +84,15 @@ if (!app.Environment.IsProduction())
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
 
 app.Run();
