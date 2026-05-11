@@ -5,10 +5,32 @@ using Funds.Api.Persistence;
 using Funds.Api.Persistence.Seed;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Events;
 using StackExchange.Redis;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, configuration) =>
+{
+    configuration
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithThreadId()
+        .Enrich.WithProperty("Application", "Funds.Api")
+        .Enrich.WithProperty("Environment", context.HostingEnvironment.EnvironmentName)
+        .WriteTo.Console(
+            outputTemplate:
+            "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] " +
+            "[CorrelationId: {CorrelationId}] " +
+            "[Application: {Application}] " +
+            "[Environment: {Environment}] " +
+            "{Message:lj}{NewLine}{Exception}");
+});
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -18,6 +40,7 @@ builder.Services.AddControllers()
     });
 
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -70,10 +93,18 @@ using (var scope = app.Services.CreateScope())
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     await context.Database.MigrateAsync();
+
     await DatabaseSeed.SeedAsync(context);
 }
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate =
+        "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+});
+
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (!app.Environment.IsProduction())
