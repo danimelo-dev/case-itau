@@ -193,8 +193,8 @@ public class OrderService : IOrderService
     }
 
     public async Task<List<OrderResponse>> GetOrdersAsync(
-    int? idCliente,
-    CancellationToken cancellationToken)
+     int? idCliente,
+     CancellationToken cancellationToken)
     {
         var cacheKey = CacheKeys.Orders(idCliente);
 
@@ -204,6 +204,10 @@ public class OrderService : IOrderService
 
         if (cachedOrders is not null)
         {
+            _logger.LogInformation(
+                "Returning orders from cache. ClientId filter: {ClientId}",
+                idCliente);
+
             return cachedOrders;
         }
 
