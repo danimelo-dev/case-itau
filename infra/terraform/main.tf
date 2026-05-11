@@ -68,7 +68,6 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets_policy" {
         ]
         Resource = [
           aws_secretsmanager_secret.db_credentials.arn,
-          aws_secretsmanager_secret.jwt_secret.arn
         ]
       }
     ]
@@ -277,14 +276,6 @@ resource "aws_secretsmanager_secret" "db_credentials" {
   }
 }
 
-resource "aws_secretsmanager_secret" "jwt_secret" {
-  name = "funds-api-jwt-secret"
-
-  tags = {
-    Project = "case-itau"
-  }
-}
-
 resource "aws_db_subnet_group" "main" {
   name = "funds-api-db-subnet-group"
 
@@ -305,8 +296,7 @@ resource "aws_db_instance" "sqlserver" {
   engine         = "sqlserver-ex"
   engine_version = "15.00"
 
-  instance_class = "db.t3.micro"
-
+  instance_class    = "db.t3.micro"
   allocated_storage = 20
 
   username = "admin"
@@ -339,14 +329,6 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
     username         = "admin"
     password         = "CaseItau123!"
     connectionString = "Server=${aws_db_instance.sqlserver.address},1433;Database=FundsDb;User Id=admin;Password=CaseItau123!;TrustServerCertificate=True"
-  })
-}
-
-resource "aws_secretsmanager_secret_version" "jwt_secret" {
-  secret_id = aws_secretsmanager_secret.jwt_secret.id
-
-  secret_string = jsonencode({
-    secretKey = "PROD_SECRET_KEY_123456789_123456789_123456789"
   })
 }
 
@@ -429,12 +411,16 @@ resource "aws_ecs_task_definition" "funds_api" {
           value = "${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379"
         },
         {
-          name  = "Jwt__Issuer"
-          value = "funds-api"
+          name  = "Cognito__Region"
+          value = var.aws_region
         },
         {
-          name  = "Jwt__Audience"
-          value = "funds-api-client"
+          name  = "Cognito__UserPoolId"
+          value = aws_cognito_user_pool.funds_api.id
+        },
+        {
+          name  = "Cognito__Audience"
+          value = aws_cognito_user_pool_client.funds_api.id
         }
       ]
 
@@ -442,10 +428,6 @@ resource "aws_ecs_task_definition" "funds_api" {
         {
           name      = "ConnectionStrings__DefaultConnection"
           valueFrom = "${aws_secretsmanager_secret.db_credentials.arn}:connectionString::"
-        },
-        {
-          name      = "Jwt__SecretKey"
-          valueFrom = "${aws_secretsmanager_secret.jwt_secret.arn}:secretKey::"
         }
       ]
 
@@ -551,12 +533,127 @@ resource "aws_ecs_service" "funds_api" {
     aws_lb_listener.http,
     aws_db_instance.sqlserver,
     aws_secretsmanager_secret_version.db_credentials,
-    aws_secretsmanager_secret_version.jwt_secret,
     aws_elasticache_replication_group.redis
   ]
 
   tags = {
     Name    = "funds-api-service"
+    Project = "case-itau"
+  }
+}
+
+# =========================
+# COGNITO
+# =========================
+
+resource "aws_cognito_user_pool" "funds_api" {
+  name = "funds-api-user-pool"
+
+  username_attributes      = ["email"]
+  auto_verified_attributes = ["email"]
+
+  password_policy {
+    minimum_length    = 8
+    require_lowercase = true
+    require_uppercase = true
+    require_numbers   = true
+    require_symbols   = false
+  }
+
+  tags = {
+    Project = "case-itau"
+  }
+}
+
+resource "aws_cognito_user_pool_client" "funds_api" {
+  name         = "funds-api-client"
+  user_pool_id = aws_cognito_user_pool.funds_api.id
+
+  generate_secret = false
+
+  explicit_auth_flows = [
+    "ALLOW_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_SRP_AUTH"
+  ]
+}
+
+# =========================
+# API GATEWAY
+# =========================
+
+resource "aws_apigatewayv2_api" "funds_api" {
+  name          = "funds-api-gateway"
+  protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_credentials = false
+    allow_headers     = ["authorization", "content-type", "x-correlation-id"]
+    allow_methods     = ["GET", "POST", "OPTIONS"]
+    allow_origins     = ["*"]
+    max_age           = 300
+  }
+
+  tags = {
+    Project = "case-itau"
+  }
+}
+
+resource "aws_apigatewayv2_authorizer" "jwt" {
+  api_id           = aws_apigatewayv2_api.funds_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "cognito-jwt-authorizer"
+
+  jwt_configuration {
+    audience = [
+      aws_cognito_user_pool_client.funds_api.id
+    ]
+
+    issuer = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.funds_api.id}"
+  }
+}
+
+resource "aws_apigatewayv2_integration" "funds_api_proxy" {
+  api_id                 = aws_apigatewayv2_api.funds_api.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  integration_uri        = "http://${aws_lb.main.dns_name}/{proxy}"
+  payload_format_version = "1.0"
+}
+
+resource "aws_apigatewayv2_integration" "funds_api_health" {
+  api_id                 = aws_apigatewayv2_api.funds_api.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "GET"
+  integration_uri        = "http://${aws_lb.main.dns_name}/health/live"
+  payload_format_version = "1.0"
+}
+
+resource "aws_apigatewayv2_route" "health" {
+  api_id    = aws_apigatewayv2_api.funds_api.id
+  route_key = "GET /health/live"
+
+  target             = "integrations/${aws_apigatewayv2_integration.funds_api_health.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "proxy" {
+  api_id    = aws_apigatewayv2_api.funds_api.id
+  route_key = "ANY /{proxy+}"
+
+  target = "integrations/${aws_apigatewayv2_integration.funds_api_proxy.id}"
+
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.funds_api.id
+  name        = "$default"
+  auto_deploy = true
+
+  tags = {
     Project = "case-itau"
   }
 }

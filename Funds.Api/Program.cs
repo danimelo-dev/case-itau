@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
 using StackExchange.Redis;
-using System.Text;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,16 +20,12 @@ builder.Host.UseSerilog((context, configuration) =>
     configuration
         .MinimumLevel.Information()
         .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-        .MinimumLevel.Override(
-            "Microsoft.EntityFrameworkCore.Database.Command",
-            LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
         .Enrich.FromLogContext()
         .Enrich.WithMachineName()
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "Funds.Api")
-        .Enrich.WithProperty(
-            "Environment",
-            context.HostingEnvironment.EnvironmentName)
+        .Enrich.WithProperty("Environment", context.HostingEnvironment.EnvironmentName)
         .WriteTo.Console(
             outputTemplate:
             "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] " +
@@ -50,24 +46,24 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(options =>
 {
-    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        In = ParameterLocation.Header,
         Description = "Informe o token JWT no formato: Bearer {seu_token}"
     });
 
-    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            new OpenApiSecurityScheme
             {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                Reference = new OpenApiReference
                 {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Type = ReferenceType.SecurityScheme,
                     Id = "Bearer"
                 }
             },
@@ -78,18 +74,15 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString(
-            "DefaultConnection")));
+        builder.Configuration.GetConnectionString("DefaultConnection")));
 
-var redisConnectionString =
-    builder.Configuration.GetConnectionString("Redis");
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
 
 if (!string.IsNullOrWhiteSpace(redisConnectionString))
 {
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     {
-        var configurationOptions =
-            ConfigurationOptions.Parse(redisConnectionString);
+        var configurationOptions = ConfigurationOptions.Parse(redisConnectionString);
 
         configurationOptions.AbortOnConnectFail = false;
         configurationOptions.ConnectRetry = 2;
@@ -102,8 +95,7 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
 
     builder.Services.AddStackExchangeRedisCache(options =>
     {
-        options.ConfigurationOptions =
-            ConfigurationOptions.Parse(redisConnectionString);
+        options.ConfigurationOptions = ConfigurationOptions.Parse(redisConnectionString);
 
         options.ConfigurationOptions.AbortOnConnectFail = false;
         options.ConfigurationOptions.ConnectRetry = 2;
@@ -119,40 +111,34 @@ else
     builder.Services.AddDistributedMemoryCache();
 }
 
-var jwtSettings = builder.Configuration.GetSection("Jwt");
+var cognitoUserPoolId = builder.Configuration["Cognito:UserPoolId"];
+var cognitoRegion = builder.Configuration["Cognito:Region"];
+var cognitoAudience = builder.Configuration["Cognito:Audience"];
 
-var jwtIssuer = jwtSettings["Issuer"];
-var jwtAudience = jwtSettings["Audience"];
-var jwtSecretKey = jwtSettings["SecretKey"];
-
-if (string.IsNullOrWhiteSpace(jwtIssuer) ||
-    string.IsNullOrWhiteSpace(jwtAudience) ||
-    string.IsNullOrWhiteSpace(jwtSecretKey))
+if (string.IsNullOrWhiteSpace(cognitoUserPoolId) ||
+    string.IsNullOrWhiteSpace(cognitoRegion) ||
+    string.IsNullOrWhiteSpace(cognitoAudience))
 {
     throw new InvalidOperationException(
-        "JWT configuration is missing. Check Jwt__Issuer, Jwt__Audience and Jwt__SecretKey.");
+        "Cognito configuration is missing. Check Cognito__UserPoolId, Cognito__Region and Cognito__Audience.");
 }
 
-var key = Encoding.UTF8.GetBytes(jwtSecretKey);
+var cognitoAuthority =
+    $"https://cognito-idp.{cognitoRegion}.amazonaws.com/{cognitoUserPoolId}";
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.RequireHttpsMetadata = false;
-        options.SaveToken = true;
+        options.Authority = cognitoAuthority;
+        options.RequireHttpsMetadata = true;
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-
+            ValidAudience = cognitoAudience,
             ClockSkew = TimeSpan.Zero
         };
     });
@@ -176,18 +162,15 @@ builder.Services.AddApplicationDependencies();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment() ||
-    app.Environment.IsProduction())
+if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
-
     app.UseSwaggerUI();
 }
 
 using (var scope = app.Services.CreateScope())
 {
-    var context =
-        scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     await context.Database.MigrateAsync();
 
@@ -208,40 +191,27 @@ app.UseSerilogRequestLogging(options =>
             return LogEventLevel.Debug;
         }
 
-        return ex is not null ||
-               httpContext.Response.StatusCode >= 500
+        return ex is not null || httpContext.Response.StatusCode >= 500
             ? LogEventLevel.Error
             : LogEventLevel.Information;
     };
 
-    options.EnrichDiagnosticContext =
-        (diagnosticContext, httpContext) =>
+    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
+        diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme);
+        diagnosticContext.Set("QueryString", httpContext.Request.QueryString.Value);
+        diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
+
+        if (httpContext.Items.TryGetValue(
+                CorrelationIdMiddleware.CorrelationIdHeader,
+                out var correlationId))
         {
             diagnosticContext.Set(
-                "RequestHost",
-                httpContext.Request.Host.Value);
-
-            diagnosticContext.Set(
-                "RequestScheme",
-                httpContext.Request.Scheme);
-
-            diagnosticContext.Set(
-                "QueryString",
-                httpContext.Request.QueryString.Value);
-
-            diagnosticContext.Set(
-                "UserAgent",
-                httpContext.Request.Headers.UserAgent.ToString());
-
-            if (httpContext.Items.TryGetValue(
-                    CorrelationIdMiddleware.CorrelationIdHeader,
-                    out var correlationId))
-            {
-                diagnosticContext.Set(
-                    "CorrelationId",
-                    correlationId?.ToString());
-            }
-        };
+                "CorrelationId",
+                correlationId?.ToString());
+        }
+    };
 });
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
