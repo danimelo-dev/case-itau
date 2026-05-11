@@ -1,11 +1,13 @@
 ﻿using Funds.Api.DTOs.Requests;
 using Funds.Api.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Funds.Api.Controllers;
 
 [ApiController]
 [Route("ordens")]
+[Authorize]
 public class OrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;

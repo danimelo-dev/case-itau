@@ -3,11 +3,14 @@ using Funds.Api.HealthChecks;
 using Funds.Api.Middlewares;
 using Funds.Api.Persistence;
 using Funds.Api.Persistence.Seed;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Serilog.Events;
 using StackExchange.Redis;
+using System.Text;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,12 +20,16 @@ builder.Host.UseSerilog((context, configuration) =>
     configuration
         .MinimumLevel.Information()
         .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-        .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
+        .MinimumLevel.Override(
+            "Microsoft.EntityFrameworkCore.Database.Command",
+            LogEventLevel.Warning)
         .Enrich.FromLogContext()
         .Enrich.WithMachineName()
         .Enrich.WithThreadId()
         .Enrich.WithProperty("Application", "Funds.Api")
-        .Enrich.WithProperty("Environment", context.HostingEnvironment.EnvironmentName)
+        .Enrich.WithProperty(
+            "Environment",
+            context.HostingEnvironment.EnvironmentName)
         .WriteTo.Console(
             outputTemplate:
             "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] " +
@@ -45,7 +52,8 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection")));
+        builder.Configuration.GetConnectionString(
+            "DefaultConnection")));
 
 var redisConnectionString =
     builder.Configuration.GetConnectionString("Redis");
@@ -85,6 +93,40 @@ else
     builder.Services.AddDistributedMemoryCache();
 }
 
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+
+var secretKey = jwtSettings["SecretKey"];
+
+var key = Encoding.UTF8.GetBytes(secretKey!);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = false;
+
+        options.SaveToken = true;
+
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidAudience = jwtSettings["Audience"],
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(key),
+
+                ClockSkew = TimeSpan.Zero
+            };
+    });
+
+builder.Services.AddAuthorization();
+
 var healthChecksBuilder = builder.Services
     .AddHealthChecks()
     .AddCheck<SqlServerHealthCheck>(
@@ -95,7 +137,7 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
 {
     healthChecksBuilder.AddCheck<RedisHealthCheck>(
         name: "redis",
-        tags: new[] { "ready" });
+        tags: new[] { "cache" });
 }
 
 builder.Services.AddApplicationDependencies();
@@ -134,7 +176,8 @@ app.UseSerilogRequestLogging(options =>
             return LogEventLevel.Debug;
         }
 
-        return ex is not null || httpContext.Response.StatusCode >= 500
+        return ex is not null ||
+               httpContext.Response.StatusCode >= 500
             ? LogEventLevel.Error
             : LogEventLevel.Information;
     };
@@ -175,6 +218,8 @@ if (!app.Environment.IsProduction())
 {
     app.UseHttpsRedirection();
 }
+
+app.UseAuthentication();
 
 app.UseAuthorization();
 
