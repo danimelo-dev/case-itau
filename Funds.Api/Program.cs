@@ -104,6 +104,18 @@ app.UseSerilogRequestLogging(options =>
     options.MessageTemplate =
         "HTTP {RequestMethod} {RequestPath}{QueryString} responded {StatusCode} in {Elapsed:0.0000} ms";
 
+    options.GetLevel = (httpContext, elapsed, ex) =>
+    {
+        if (httpContext.Request.Path.StartsWithSegments("/health"))
+        {
+            return LogEventLevel.Debug;
+        }
+
+        return ex is not null || httpContext.Response.StatusCode >= 500
+            ? LogEventLevel.Error
+            : LogEventLevel.Information;
+    };
+
     options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
     {
         diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
@@ -111,9 +123,13 @@ app.UseSerilogRequestLogging(options =>
         diagnosticContext.Set("QueryString", httpContext.Request.QueryString.Value);
         diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
 
-        if (httpContext.Items.TryGetValue(CorrelationIdMiddleware.CorrelationIdHeader, out var correlationId))
+        if (httpContext.Items.TryGetValue(
+                CorrelationIdMiddleware.CorrelationIdHeader,
+                out var correlationId))
         {
-            diagnosticContext.Set("CorrelationId", correlationId?.ToString());
+            diagnosticContext.Set(
+                "CorrelationId",
+                correlationId?.ToString());
         }
     };
 });
