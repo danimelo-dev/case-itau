@@ -47,16 +47,36 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
 
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+var redisConnectionString =
+    builder.Configuration.GetConnectionString("Redis");
 
 if (!string.IsNullOrWhiteSpace(redisConnectionString))
 {
-    builder.Services.AddSingleton<IConnectionMultiplexer>(
-        _ => ConnectionMultiplexer.Connect(redisConnectionString));
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    {
+        var configurationOptions =
+            ConfigurationOptions.Parse(redisConnectionString);
+
+        configurationOptions.AbortOnConnectFail = false;
+        configurationOptions.ConnectRetry = 2;
+        configurationOptions.ConnectTimeout = 1000;
+        configurationOptions.SyncTimeout = 1000;
+        configurationOptions.AsyncTimeout = 1000;
+
+        return ConnectionMultiplexer.Connect(configurationOptions);
+    });
 
     builder.Services.AddStackExchangeRedisCache(options =>
     {
-        options.Configuration = redisConnectionString;
+        options.ConfigurationOptions =
+            ConfigurationOptions.Parse(redisConnectionString);
+
+        options.ConfigurationOptions.AbortOnConnectFail = false;
+        options.ConfigurationOptions.ConnectRetry = 2;
+        options.ConfigurationOptions.ConnectTimeout = 1000;
+        options.ConfigurationOptions.SyncTimeout = 1000;
+        options.ConfigurationOptions.AsyncTimeout = 1000;
+
         options.InstanceName = "funds-api:";
     });
 }
@@ -82,15 +102,18 @@ builder.Services.AddApplicationDependencies();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
+if (app.Environment.IsDevelopment() ||
+    app.Environment.IsProduction())
 {
     app.UseSwagger();
+
     app.UseSwaggerUI();
 }
 
 using (var scope = app.Services.CreateScope())
 {
-    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var context =
+        scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     await context.Database.MigrateAsync();
 
@@ -116,22 +139,34 @@ app.UseSerilogRequestLogging(options =>
             : LogEventLevel.Information;
     };
 
-    options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
-    {
-        diagnosticContext.Set("RequestHost", httpContext.Request.Host.Value);
-        diagnosticContext.Set("RequestScheme", httpContext.Request.Scheme);
-        diagnosticContext.Set("QueryString", httpContext.Request.QueryString.Value);
-        diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
-
-        if (httpContext.Items.TryGetValue(
-                CorrelationIdMiddleware.CorrelationIdHeader,
-                out var correlationId))
+    options.EnrichDiagnosticContext =
+        (diagnosticContext, httpContext) =>
         {
             diagnosticContext.Set(
-                "CorrelationId",
-                correlationId?.ToString());
-        }
-    };
+                "RequestHost",
+                httpContext.Request.Host.Value);
+
+            diagnosticContext.Set(
+                "RequestScheme",
+                httpContext.Request.Scheme);
+
+            diagnosticContext.Set(
+                "QueryString",
+                httpContext.Request.QueryString.Value);
+
+            diagnosticContext.Set(
+                "UserAgent",
+                httpContext.Request.Headers.UserAgent.ToString());
+
+            if (httpContext.Items.TryGetValue(
+                    CorrelationIdMiddleware.CorrelationIdHeader,
+                    out var correlationId))
+            {
+                diagnosticContext.Set(
+                    "CorrelationId",
+                    correlationId?.ToString());
+            }
+        };
 });
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
