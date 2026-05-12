@@ -32,11 +32,10 @@ A solução foi construída com foco em:
 
 # Arquitetura
 
-> Inserir aqui o desenho da arquitetura cloud.
+> Draw.io
+> Obs: Link do drive com o arquivo abaixo.
 
-<p align="center">
-  <img src="./docs/architecture/case-itau-architecture.png" width="900" alt="Arquitetura AWS" />
-</p>
+https://drive.google.com/file/d/1xEt7EQ28U_Vkx9mYoYYdAAJ_JlQbLWX9/view?usp=sharing
 
 ## Fluxo principal
 
@@ -54,8 +53,6 @@ Client
 
 # Modelagem de Dados
 
-> Inserir aqui o DER/MER do banco.
-
 <p align="center">
   <img src="./docs/database/database-diagram.png" width="850" alt="Diagrama do banco de dados" />
 </p>
@@ -69,9 +66,9 @@ Client
 
 ---
 
-# Design System / API Experience
+# API Experience - Swagger
 
-> Espaço reservado para Swagger, Insomnia, CloudWatch e AWS Console.
+http://funds-api-alb-359815732.us-east-1.elb.amazonaws.com/swagger/index.html
 
 <p align="center">
   <img src="./docs/design-system/swagger-auth.png" width="850" alt="Swagger JWT" />
