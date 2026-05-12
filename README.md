@@ -37,6 +37,10 @@ A solução foi construída com foco em:
 
 https://drive.google.com/file/d/1xEt7EQ28U_Vkx9mYoYYdAAJ_JlQbLWX9/view?usp=sharing
 
+<p align="center">
+  <img src="./docs/design-system/arq.png" width="850" alt="Swagger JWT" />
+</p>
+
 ## Fluxo principal
 
 ```txt
