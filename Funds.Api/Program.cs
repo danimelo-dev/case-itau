@@ -136,9 +136,8 @@ builder.Services
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidateAudience = true,
             ValidateLifetime = true,
-            ValidAudience = cognitoAudience,
+            ValidateAudience = false,
             ClockSkew = TimeSpan.Zero
         };
     });
