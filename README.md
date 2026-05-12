@@ -66,7 +66,9 @@ Client
 
 ---
 
-# Design System / API Experience
+# API Experience - Swagger
+
+http://funds-api-alb-359815732.us-east-1.elb.amazonaws.com/swagger/index.html
 
 <p align="center">
   <img src="./docs/design-system/swagger-auth.png" width="850" alt="Swagger JWT" />
