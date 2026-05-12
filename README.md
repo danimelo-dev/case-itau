@@ -53,8 +53,6 @@ Client
 
 # Modelagem de Dados
 
-> Inserir aqui o DER/MER do banco.
-
 <p align="center">
   <img src="./docs/database/database-diagram.png" width="850" alt="Diagrama do banco de dados" />
 </p>
@@ -69,8 +67,6 @@ Client
 ---
 
 # Design System / API Experience
-
-> Espaço reservado para Swagger, Insomnia, CloudWatch e AWS Console.
 
 <p align="center">
   <img src="./docs/design-system/swagger-auth.png" width="850" alt="Swagger JWT" />
