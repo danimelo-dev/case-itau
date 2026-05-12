@@ -32,11 +32,10 @@ A solução foi construída com foco em:
 
 # Arquitetura
 
-> Inserir aqui o desenho da arquitetura cloud.
+> Draw.io
+> Obs: Link do drive com o arquivo abaixo.
 
-<p align="center">
-  <img src="./docs/architecture/case-itau-architecture.png" width="900" alt="Arquitetura AWS" />
-</p>
+https://drive.google.com/file/d/1xEt7EQ28U_Vkx9mYoYYdAAJ_JlQbLWX9/view?usp=sharing
 
 ## Fluxo principal
 
