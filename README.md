@@ -72,6 +72,19 @@ Client
 
 # API Experience - Swagger
 
+Antes de testar as rotas via Swagger, é necessário realizar a autenticação utilizando o AWS Cognito para obter o JWT Bearer Token utilizado pela API. Execute a request abaixo para gerar o token:
+
+curl --request POST \
+  --url https://cognito-idp.us-east-1.amazonaws.com/ \
+  --header 'Content-Type: application/x-amz-json-1.1' \
+  --header 'X-Amz-Target: AWSCognitoIdentityProviderService.InitiateAuth' \
+  --data '{     "AuthFlow": "USER_PASSWORD_AUTH",     "ClientId": "ckuj51sr0915a8ftmdn8ma4up",     "AuthParameters": {       "USERNAME": "teste@teste.com",       "PASSWORD": "Teste1234!"     }   }'
+
+Após a autenticação, copie o campo IdToken retornado na resposta e utilize-o no botão Authorize do Swagger no seguinte formato:
+
+Bearer {SEU_TOKEN}
+
+Swagger URL:
 http://funds-api-alb-359815732.us-east-1.elb.amazonaws.com/swagger/index.html
 
 <p align="center">
